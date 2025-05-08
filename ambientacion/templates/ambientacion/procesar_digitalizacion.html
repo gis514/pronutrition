@@ -1,0 +1,47 @@
+{% extends "core/base.html" %}
+{% load crispy_forms_tags %}
+
+{% block titulo_pagina %}Procesar Tarea: {{ tarea.get_tipo_tarea_display }}{% endblock %}
+{% block titulo_seccion %}Procesar Tarea #{{ tarea.id }}{% endblock %}
+
+{% block contenido %}
+    <div class="card mb-4">
+        <div class="card-header">Detalles de la Tarea</div>
+        <div class="card-body">
+            <p><strong>Tipo:</strong> {{ tarea.get_tipo_tarea_display }}</p>
+            <p><strong>Estado Actual:</strong> {{ tarea.get_estado_tarea_display }}</p>
+            <p><strong>Establecimiento:</strong> {{ establecimiento.nombre }} (Empresa: {{ establecimiento.empresa.nombre_razon_social }})</p>
+            <p><strong>Fecha Creación:</strong> {{ tarea.fecha_creacion|date:"d/m/Y H:i" }}</p>
+            <p><strong>Creado Por:</strong> {{ tarea.creado_por|default:"Sistema" }}</p>
+            <hr>
+            <h6>Descripción / Solicitud Original:</h6>
+            <p style="white-space: pre-wrap;">{{ tarea.descripcion|default:"Sin descripción." }}</p>
+            {# Aquí podrías añadir un enlace para descargar archivos de referencia si los guardaste #}
+        </div>
+    </div>
+
+    {% if tarea.estado_tarea == 'PENDIENTE' or tarea.estado_tarea == 'REQUIERE_CORRECCION' %}
+        <div class="card">
+            <div class="card-header">Subir Shapefile de Lotes</div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data" novalidate>
+                    {% csrf_token %}
+                    {{ form|crispy }}
+                    <hr>
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-upload me-1"></i> Procesar Archivo y Completar Tarea
+                        </button>
+                        <a href="{% url 'ambientacion:vista_tareas_gis' %}" class="btn btn-secondary">Volver a Tareas</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {% else %}
+         <div class="alert alert-success">
+             Esta tarea ya fue completada el {{ tarea.fecha_finalizacion|date:"d/m/Y H:i" }}.
+         </div>
+         <a href="{% url 'ambientacion:vista_tareas_gis' %}" class="btn btn-secondary">Volver a Tareas</a>
+    {% endif %}
+
+{% endblock %}

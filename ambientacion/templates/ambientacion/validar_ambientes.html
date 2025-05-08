@@ -1,0 +1,302 @@
+{% extends "core/base.html" %}
+{% load crispy_forms_tags %}
+{% load static %}
+
+{% block titulo_pagina %}{{ titulo_pagina }}{% endblock %}
+{% block titulo_seccion %}{{ titulo_formulario }}{% endblock %}
+
+{% block head_extra %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #mapa-validacion-ambientes { 
+            height: 550px; 
+            width: 100%; 
+            border: 1px solid #ccc; 
+            border-radius: 5px; 
+            margin-bottom: 1rem; 
+            background-color: #f8f9fa;
+        }
+        .formset-form {
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border: 1px solid #e9ecef;
+            border-radius: 0.375rem;
+            background-color: #f8f9fa;
+            display: none; /* Ocultar formularios por defecto */
+        }
+        .formset-form.active {
+            display: block; /* Mostrar solo el formulario activo */
+            border-left: 4px solid #198754;
+        }
+        .formset-form h5 { 
+            font-size: 1.1rem; 
+            color: var(--primary-color); 
+        }
+        #ambiente-info {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        #seleccionar-indicador {
+            font-style: italic;
+            color: #6c757d;
+            text-align: center;
+            padding: 2rem;
+        }
+    </style>
+{% endblock %}
+
+{% block contenido %}
+    {# Mostrar mensajes directamente en lugar de usar un include que no existe #}
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{% if message.tags %}{{ message.tags }}{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="row mb-3">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-map me-2"></i>Ambientes de Lote: {{ lote.nombre }}</h5>
+                        <span class="badge bg-info text-dark">Haga clic en un ambiente para validar</span>
+                    </div>
+                </div>
+                <div class="card-body p-2">
+                    <div id="mapa-validacion-ambientes">
+                        <p class="text-center text-muted p-5">Cargando mapa...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Información del Ambiente</h5>
+                </div>
+                <div class="card-body">
+                    <div id="ambiente-info">
+                        <div id="seleccionar-indicador">
+                            <i class="fas fa-mouse-pointer mb-3 fa-2x"></i>
+                            <p>Seleccione un ambiente en el mapa para validar sus atributos</p>
+                        </div>
+                        <div id="ambiente-detalle" style="display: none;">
+                            <h5 id="ambiente-titulo">Ambiente</h5>
+                            <div id="ambiente-datos">
+                                <!-- Aquí se mostrará información básica del ambiente seleccionado -->
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="text-end">
+                        <button type="button" id="mostrar-todos-formularios" class="btn btn-outline-primary">
+                            <i class="fas fa-list-ul me-1"></i> Ver Todos los Ambientes
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Renderizado del Formset #}
+    <form method="post" id="formulario-ambientes">
+        {% csrf_token %}
+        <!-- Necesario para la gestión del formset -->
+        {{ formset.management_form }}
+
+        {% if formset.non_form_errors %}
+            <div class="alert alert-danger">
+                {{ formset.non_form_errors }}
+            </div>
+        {% endif %}
+
+        <div id="formularios-container">
+            <!-- Iterar sobre cada formulario dentro del formset -->
+            {% for form in formset %}
+                <div class="formset-form" id="form-ambiente-{{ form.instance.id }}" data-ambiente-id="{{ form.instance.id }}">
+                    <h5>Ambiente: {{ form.instance.nombre|default:"Nuevo" }} (ID: {{ form.instance.id }})</h5>
+                    <hr>
+                    {{ form|crispy }}
+                    {{ form.id }}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="mt-4 text-center">
+            <button type="submit" class="btn btn-success btn-lg">
+                <i class="fas fa-check-circle me-1"></i> Guardar Cambios y Marcar como Activos
+            </button>
+            <a href="{% url 'ambientacion:detalle_establecimiento' lote.establecimiento.id %}" class="btn btn-secondary ms-2">Cancelar</a>
+        </div>
+    </form>
+{% endblock %}
+
+{% block scripts_extra %}
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const mapaContainerValAmb = document.getElementById('mapa-validacion-ambientes');
+            const ambienteInfo = document.getElementById('ambiente-info');
+            const ambienteDetalle = document.getElementById('ambiente-detalle');
+            const ambienteTitulo = document.getElementById('ambiente-titulo');
+            const ambienteDatos = document.getElementById('ambiente-datos');
+            const seleccionarIndicador = document.getElementById('seleccionar-indicador');
+            const formulariosContainer = document.getElementById('formularios-container');
+            const mostrarTodosBtn = document.getElementById('mostrar-todos-formularios');
+            
+            // Referencia a formularios para manipulación fácil
+            const formularios = {};
+            document.querySelectorAll('.formset-form').forEach(form => {
+                const ambienteId = form.getAttribute('data-ambiente-id');
+                formularios[ambienteId] = form;
+            });
+            
+            // Usamos los datos GeoJSON en SRID 4326 pasados desde la vista
+            const ambientesDataVal = JSON.parse('{{ ambientes_geojson|escapejs|default:"null" }}');
+            
+            // Referencia a capas para manipulación
+            const ambienteLayers = {};
+
+            if (!mapaContainerValAmb) return;
+            const hayAmbientesVal = ambientesDataVal && ambientesDataVal.features && ambientesDataVal.features.length > 0;
+
+            if (!hayAmbientesVal) {
+                mapaContainerValAmb.innerHTML = '<div class="alert alert-light text-center p-3">No hay ambientes pendientes de validación para este lote.</div>';
+                return;
+            }
+
+            // Inicializar mapa con CartoDB como proveedor de tiles
+            const mapaAmbientesVal = L.map('mapa-validacion-ambientes').setView([-33,-56], 7);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                subdomains: 'abcd',
+                maxZoom: 20
+            }).addTo(mapaAmbientesVal);
+
+            // Colores para ambientes según productividad
+            function getColorAmbiente(prod) { 
+                switch (prod) {
+                    case 'A': return '#28a745'; // Verde - Alta productividad
+                    case 'B': return '#fd7e14'; // Naranja - Media productividad
+                    case 'C': return '#ffc107'; // Amarillo - Media-Baja
+                    case 'D': return '#dc3545'; // Rojo - Baja productividad
+                    default: return '#6c757d';  // Gris - No definida
+                }
+            }
+
+            // Variable para rastrear la capa actualmente seleccionada
+            let selectedLayer = null;
+            const originalStyles = {};
+
+            // Agregar GeoJSON al mapa con interactividad
+            const ambientesLayerVal = L.geoJSON(ambientesDataVal, {
+                style: function(feature) {
+                    const style = {
+                        fillColor: getColorAmbiente(feature.properties.productividad),
+                        weight: 2,
+                        opacity: 1,
+                        color: '#495057',
+                        fillOpacity: 0.7
+                    };
+                    originalStyles[feature.properties.id] = {...style};
+                    return style;
+                },
+                onEachFeature: function(feature, layer) {
+                    const prop = feature.properties;
+                    const ambienteId = prop.id;
+                    
+                    // Guardar referencia a la capa
+                    ambienteLayers[ambienteId] = layer;
+                    
+                    // Configurar popup
+                    layer.bindPopup(`
+                        <strong>Ambiente: ${prop.nombre || 'N/A'}</strong>
+                        <br>ID: ${ambienteId}
+                        <br><i>Haga clic para validar</i>
+                    `);
+                    
+                    // Mostrar nombre al pasar el mouse
+                    layer.bindTooltip(prop.nombre || `Ambiente ID: ${ambienteId}`);
+                    
+                    // Manejar clic en ambiente
+                    layer.on('click', function(e) {
+                        // Restaurar estilo de capa seleccionada anteriormente
+                        if (selectedLayer) {
+                            const prevId = selectedLayer.feature.properties.id;
+                            selectedLayer.setStyle(originalStyles[prevId]);
+                        }
+                        
+                        // Aplicar estilo de selección a este ambiente
+                        layer.setStyle({
+                            weight: 4,
+                            color: '#0d6efd',
+                            fillOpacity: 0.7,
+                            dashArray: ''
+                        });
+                        
+                        // Traer al frente
+                        if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+                            layer.bringToFront();
+                        }
+                        
+                        // Actualizar referencia a capa seleccionada
+                        selectedLayer = layer;
+                        
+                        // Mostrar panel de detalles
+                        seleccionarIndicador.style.display = 'none';
+                        ambienteDetalle.style.display = 'block';
+                        ambienteTitulo.textContent = `Ambiente: ${prop.nombre || `ID: ${ambienteId}`}`;
+                        
+                        // Mostrar datos básicos
+                        let datosHTML = `
+                            <p><strong>Superficie:</strong> ${prop.superficie_has || 'N/D'} ha</p>
+                            <p><strong>Productividad actual:</strong> ${prop.productividad || 'No definida'}</p>
+                            <button class="btn btn-primary btn-sm" onclick="mostrarFormulario(${ambienteId})">
+                                <i class="fas fa-edit me-1"></i> Editar Atributos
+                            </button>
+                        `;
+                        ambienteDatos.innerHTML = datosHTML;
+                        
+                        // Mostrar formulario correspondiente
+                        mostrarFormulario(ambienteId);
+                    });
+                }
+            }).addTo(mapaAmbientesVal);
+            
+            // Ajustar vista del mapa
+            if (ambientesLayerVal.getBounds().isValid()) {
+                mapaAmbientesVal.fitBounds(ambientesLayerVal.getBounds().pad(0.1));
+            }
+            
+            // Función global para mostrar formulario
+            window.mostrarFormulario = function(ambienteId) {
+                // Ocultar todos los formularios
+                document.querySelectorAll('.formset-form').forEach(form => {
+                    form.classList.remove('active');
+                });
+                
+                // Mostrar solo el formulario correspondiente
+                const formulario = document.getElementById(`form-ambiente-${ambienteId}`);
+                if (formulario) {
+                    formulario.classList.add('active');
+                    
+                    // Desplazar al formulario
+                    formulario.scrollIntoView({behavior: 'smooth', block: 'start'});
+                }
+            };
+            
+            // Botón para mostrar todos los formularios
+            mostrarTodosBtn.addEventListener('click', function() {
+                document.querySelectorAll('.formset-form').forEach(form => {
+                    form.classList.add('active');
+                });
+            });
+        });
+    </script>
+{% endblock %}

@@ -1,0 +1,164 @@
+{% extends "core/base.html" %} {# Ajusta si tu base.html está en otro lado #}
+{% load crispy_forms_tags %}
+{% load static %}
+
+{% block titulo_pagina %}{{ titulo_pagina|default:"Formulario" }}{% endblock %}
+{% block titulo_seccion %}{{ titulo_formulario|default:"Completar Formulario" }}{% endblock %}
+
+{% block head_extra %}
+    {# Usar la versión moderna de OpenLayers con CDN confiable #}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.15.1/css/ol.css" type="text/css">
+    <style>
+        /* Estilo para nuestro mapa personalizado */
+        #map-container {
+            min-height: 400px;
+            height: 50vh;
+            width: 100%;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        /* Ocultar el widget original para no confundir al usuario */
+        #div_id_punto_referencia {
+            display: none;
+        }
+    </style>
+{% endblock %}
+
+{% block contenido %}
+    <div class="content-card"> {# Usando la clase de tus mockups #}
+        <h2 class="mb-4">{{ titulo_formulario|default:"Completar Formulario" }}</h2>
+
+        {# Mensajes de error generales del formulario (si los hay) #}
+        {% if form.non_field_errors %}
+            <div class="alert alert-danger">
+                {% for error in form.non_field_errors %}
+                    <p class="mb-0">{{ error }}</p>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <form method="post" novalidate enctype="multipart/form-data"> {# Añadido enctype por si usas FileFields #}
+            {% csrf_token %}
+
+            {# Renderizar todos los campos excepto punto_referencia #}
+            {% for field in form %}
+                {% if field.name != 'punto_referencia' %}
+                    {{ field|as_crispy_field }}
+                {% endif %}
+            {% endfor %}
+            
+            {# Nuestro mapa personalizado #}
+            <div class="mb-3">
+                <label class="form-label">Ubicación geográfica</label>
+                <div id="map-container"></div>
+                <div class="form-text">Haga clic en el mapa para marcar la ubicación del establecimiento.</div>
+                
+                {# Campo oculto para almacenar las coordenadas en formato EWKT #}
+                <input type="hidden" id="id_punto_referencia" name="punto_referencia" 
+                       value="{{ form.punto_referencia.value|default:'SRID=32721;POINT(-56 -33)' }}">
+            </div>
+
+            <hr>
+            <div class="mt-3">
+                <button type="submit" class="btn btn-success">
+                    <i class="fas fa-save me-1"></i> Guardar Establecimiento
+                </button>
+                {# Construye la URL de cancelar usando los parámetros de la vista #}
+                <a href="{% url url_cancelar id_param_cancelar %}" class="btn btn-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+{% endblock %}
+
+{% block scripts_extra %}
+    {# Cargar OpenLayers desde CDN confiable #}
+    <script src="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.15.1/build/ol.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/proj4@2.8.0/dist/proj4.js"></script>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Obtener el valor inicial del campo oculto
+            const hiddenInput = document.getElementById('id_punto_referencia');
+            let initialValue = hiddenInput.value;
+            
+            // Definir proyección para Uruguay (EPSG:32721) y registrarla con proj4js
+            proj4.defs('EPSG:32721', '+proj=utm +zone=21 +south +datum=WGS84 +units=m +no_defs');
+            ol.proj.proj4.register(proj4);
+            
+            // Extraer las coordenadas del formato EWKT
+            let initialLon = -56;  // Valores predeterminados centrados en Uruguay
+            let initialLat = -33;
+            
+            // Intentar analizar las coordenadas del valor EWKT
+            if (initialValue) {
+                const match = initialValue.match(/POINT\(([^ ]+) ([^ ]+)\)/);
+                if (match && match.length === 3) {
+                    initialLon = parseFloat(match[1]);
+                    initialLat = parseFloat(match[2]);
+                }
+            }
+            
+            // Convertir coordenadas UTM a coordenadas geográficas para el mapa
+            const initialCoord = ol.proj.transform([initialLon, initialLat], 'EPSG:32721', 'EPSG:4326');
+            
+            // Crear capa de mosaicos de OpenStreetMap
+            const baseLayer = new ol.layer.Tile({
+                source: new ol.source.OSM()
+            });
+            
+            // Crear capa vectorial para el marcador
+            const vectorSource = new ol.source.Vector();
+            const vectorLayer = new ol.layer.Vector({
+                source: vectorSource,
+                style: new ol.style.Style({
+                    image: new ol.style.Circle({
+                        radius: 8,
+                        fill: new ol.style.Fill({color: '#3399CC'}),
+                        stroke: new ol.style.Stroke({color: '#fff', width: 2})
+                    })
+                })
+            });
+            
+            // Crear el mapa con proyección estándar
+            const map = new ol.Map({
+                target: 'map-container',
+                layers: [baseLayer, vectorLayer],
+                view: new ol.View({
+                    projection: 'EPSG:4326',  // Proyección estándar (lat/lon)
+                    center: [initialCoord[0], initialCoord[1]],
+                    zoom: 7
+                })
+            });
+            
+            // Añadir marcador inicial si hay coordenadas
+            if (initialLon && initialLat) {
+                const feature = new ol.Feature({
+                    geometry: new ol.geom.Point(initialCoord)
+                });
+                vectorSource.addFeature(feature);
+            }
+            
+            // Manejar clics en el mapa
+            map.on('click', function(evt) {
+                // Limpiar marcadores anteriores
+                vectorSource.clear();
+                
+                // Obtener coordenadas en la proyección del mapa (EPSG:4326)
+                const coord4326 = evt.coordinate;
+                
+                // Añadir nuevo marcador
+                const feature = new ol.Feature({
+                    geometry: new ol.geom.Point(coord4326)
+                });
+                vectorSource.addFeature(feature);
+                
+                // Convertir a UTM para guardar en el formato esperado
+                const coordUTM = ol.proj.transform(coord4326, 'EPSG:4326', 'EPSG:32721');
+                
+                // Actualizar campo oculto con las nuevas coordenadas UTM
+                hiddenInput.value = `SRID=32721;POINT(${coordUTM[0]} ${coordUTM[1]})`;
+            });
+        });
+    </script>
+{% endblock %}

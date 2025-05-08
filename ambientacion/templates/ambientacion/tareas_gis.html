@@ -1,0 +1,59 @@
+{% extends "core/base.html" %}
+{% block titulo_pagina %}Tareas GIS{% endblock %}
+{% block titulo_seccion %}Bandeja de Tareas - Área GIS{% endblock %}
+
+{% block contenido %}
+    <h3 class="mb-3">Tareas Pendientes (Rol GIS)</h3>
+    {% if tareas_pendientes %}
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID Tarea</th>
+                        <th>Tipo</th>
+                        <th>Descripción</th>
+                        <th>Fecha Creación</th>
+                        <th>Creado Por</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tarea in tareas_pendientes %}
+                        <tr>
+                            <td>{{ tarea.id }}</td>
+                            <td>{{ tarea.get_tipo_tarea_display }}</td>
+                            <td style="max-width: 400px; white-space: pre-wrap;">{{ tarea.descripcion|truncatechars:150 }}</td>
+                            <td>{{ tarea.fecha_creacion|date:"d/m/Y H:i" }}</td>
+                            <td>{{ tarea.creado_por|default:"Sistema" }}</td>
+                            <td>
+                                {% if tarea.tipo_tarea == 'DIGITALIZAR_LOTES' %}
+                                    <a href="{% url 'ambientacion:procesar_digitalizacion_lote' tarea.id %}" class="btn btn-sm btn-primary" title="Procesar Tarea">
+                                        <i class="fas fa-arrow-right"></i> Procesar
+                                    </a>
+                                {% else %}
+                                    {# Otros botones para otros tipos de tarea GIS #}
+                                    <a href="#" class="btn btn-sm btn-secondary" title="Ver Detalle">
+                                        <i class="fas fa-eye"></i> Ver
+                                    </a>
+                                {% endif %}
+                                {# Botón para tomar la tarea si implementas asignación específica
+                                <form method="post" action="{% url 'ambientacion:tomar_tarea_gis' tarea.id %}" style="display: inline;">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-outline-success ms-1" title="Tomar Tarea">
+                                        <i class="fas fa-hand-paper"></i> Tomar
+                                    </button>
+                                </form>
+                                #}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="alert alert-success">No hay tareas pendientes asignadas al rol GIS.</div>
+    {% endif %}
+
+    {# Aquí podrías listar las tareas asignadas específicamente al usuario si implementas esa lógica #}
+
+{% endblock %}

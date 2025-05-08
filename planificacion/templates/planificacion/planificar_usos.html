@@ -1,0 +1,70 @@
+{% extends "core/base.html" %}
+{% load crispy_forms_tags %}
+{% block titulo_pagina %}{{ titulo_pagina }}{% endblock %}
+{% block titulo_seccion %}Planificación Lote: {{ lote.nombre }} ({{ lote.establecimiento.nombre }}) - Zafra {{ zafra_display }} {{ año_zafra }}/{{ año_zafra|add:1 }}{% endblock %}
+
+{% block contenido %}
+    {# Mensajes #}
+    {% include 'includes/messages.html' %}
+
+    <p>Define el cultivo principal para cada ambiente activo de este lote para la zafra seleccionada.</p>
+
+    <form method="post">
+        {% csrf_token %}
+        {# Necesario para la gestión del formset #}
+        {{ formset.management_form|crispy }}
+
+        {% if formset.non_form_errors %}
+            <div class="alert alert-danger">{{ formset.non_form_errors }}</div>
+        {% endif %}
+
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>Ambiente</th>
+                        <th>Superficie (ha)</th>
+                        <th>Productividad</th>
+                        <th>Cultivo/Uso Planificado</th>
+                        {# Añadir más columnas si el form tiene más campos #}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for form in formset %}
+                        {# El formset itera sobre instancias de UsoDeSuelo #}
+                        <tr>
+                            <td>
+                                {# Accedemos al ambiente a través de la instancia del form #}
+                                <strong>{{ form.instance.ambiente.nombre }}</strong>
+                                {# Incluimos el ID oculto del UsoDeSuelo para la actualización #}
+                                {{ form.id }}
+                            </td>
+                            <td>{{ form.instance.ambiente.superficie_has|floatformat:1 }}</td>
+                            <td>{{ form.instance.ambiente.get_productividad_display|default:"N/D" }}</td>
+                            {# Renderizamos los campos editables del form #}
+                            <td>{{ form.tipo_uso|as_crispy_field }}</td>
+                            {# Renderizar otros campos si los hay: #}
+                            {# <td>{{ form.variedad_hibrido|as_crispy_field }}</td> #}
+                            {# Mostrar errores específicos del form si los hay #}
+                            {% if form.errors %}
+                                <td colspan="X"> {# Ajusta colspan #}
+                                    <div class="alert alert-danger p-1 small mb-0">
+                                        {{ form.errors }}
+                                    </div>
+                                </td>
+                            {% endif %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="mt-4">
+            <button type="submit" class="btn btn-success">
+                <i class="fas fa-save me-1"></i> Guardar Planificación
+            </button>
+             <a href="{% url 'ambientacion:detalle_establecimiento' lote.establecimiento.id %}" class="btn btn-secondary">Volver al Establecimiento</a>
+        </div>
+    </form>
+
+{% endblock %}

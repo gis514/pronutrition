@@ -1,0 +1,27 @@
+{% extends "core/base.html" %} {# Ajusta si tu base.html está en otro lado #}
+{% load crispy_forms_tags %}
+
+{% block titulo_pagina %}{{ titulo_pagina|default:"Formulario" }}{% endblock %}
+{% block titulo_seccion %}{{ titulo_formulario|default:"Completar Formulario" }}{% endblock %}
+
+{% block contenido %}
+    <h2 class="mb-4">{{ titulo_formulario|default:"Completar Formulario" }}</h2>
+    <form method="post" novalidate enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ form|crispy }}
+        <hr>
+        <div class="mt-3">
+            <button type="submit" class="btn btn-success">
+                <i class="fas fa-save me-1"></i> Guardar
+            </button>
+            {% if url_cancelar %}
+                {# Manejo mejorado de URLs de cancelar con parámetros opcionales #}
+                {% if id_param_cancelar %}
+                    <a href="{% url url_cancelar id_param_cancelar %}" class="btn btn-secondary">Cancelar</a>
+                {% else %}
+                    <a href="{% url url_cancelar %}" class="btn btn-secondary">Cancelar</a>
+                {% endif %}
+            {% endif %}
+        </div>
+    </form>
+{% endblock %}

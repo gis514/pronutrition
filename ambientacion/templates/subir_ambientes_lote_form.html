@@ -1,0 +1,106 @@
+{% extends "core/base.html" %}
+{% load crispy_forms_tags %}
+
+{% block titulo_pagina %}Cargar Ambientes{% endblock %}
+{% block titulo_seccion %}Cargar/Actualizar Ambientes para Lote: {{ lote.nombre }}{% endblock %}
+
+{% block head_extra %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #mapa-lote-contexto-amb {
+            height: 450px;
+            width: 100%;
+            border-radius: 0.375rem;
+            border: 1px solid #dee2e6;
+            margin-bottom: 1.5rem;
+            background-color: #e9ecef;
+        }
+    </style>
+{% endblock %}
+
+{% block contenido %}
+    <h2 class="mb-4">Cargar/Actualizar Ambientes para Lote: {{ lote.nombre }}</h2>
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ form|crispy }}
+        <div id="mapa-lote-contexto-amb">
+            <p class="text-center text-muted p-5">Cargando mapa...</p>
+        </div>
+        <hr>
+        <div class="mt-3">
+            <button type="submit" class="btn btn-success">
+                <i class="fas fa-upload me-1"></i> Subir Ambientes
+            </button>
+            <a href="{% url 'ambientacion:detalle_establecimiento' lote.establecimiento.id %}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left me-1"></i> Cancelar
+            </a>
+        </div>
+    </form>
+{% endblock %}
+
+{% block scripts_extra %}
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+         document.addEventListener('DOMContentLoaded', function () {
+             console.log("Inicializando mapa de lote...");
+             
+             const mapaContainerAmb = document.getElementById('mapa-lote-contexto-amb');
+             
+             try {
+                 // Convertir la geometría del lote a formato JSON usando safe para evitar escape de caracteres
+                 const loteGeoJsonStr = '{{ lote_geojson|safe }}';
+                 console.log("GeoJSON recibido (primeros caracteres):", loteGeoJsonStr.substring(0, 50) + "...");
+                 
+                 // Verificar si el GeoJSON no está vacío
+                 if (!loteGeoJsonStr || loteGeoJsonStr === 'null' || loteGeoJsonStr === 'undefined') {
+                     console.error("GeoJSON no disponible");
+                     if (mapaContainerAmb) {
+                         mapaContainerAmb.innerHTML = '<p class="text-muted text-center p-3">No hay geometría disponible para este lote.</p>';
+                     }
+                     return;
+                 }
+                 
+                 // Parsear el JSON de la geometría
+                 const loteGeoJsonAmb = JSON.parse(loteGeoJsonStr);
+                 
+                 if (mapaContainerAmb) {
+                     const mapaLoteAmb = L.map('mapa-lote-contexto-amb');
+                     
+                     // Usar CartoDB como proveedor de tiles
+                     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                         subdomains: 'abcd',
+                         maxZoom: 20
+                     }).addTo(mapaLoteAmb);
+    
+                     const loteLayerAmb = L.geoJSON(loteGeoJsonAmb, {
+                          style: { fillOpacity: 0.2, weight: 2.5, color: '#343a40', fillColor: '#0dcaf0' }
+                     }).addTo(mapaLoteAmb);
+                     
+                     console.log("Capa de lote agregada al mapa");
+                     
+                     loteLayerAmb.bindTooltip("Lote: {{ lote.nombre|escapejs }}");
+    
+                     try {
+                         if (loteLayerAmb.getBounds().isValid()) {
+                             console.log("Ajustando zoom a bounds");
+                             mapaLoteAmb.fitBounds(loteLayerAmb.getBounds().pad(0.1));
+                         } else {
+                             console.warn("Bounds de lote no válidos");
+                             mapaLoteAmb.setView([-33,-56], 7);
+                         }
+                     } catch (error) {
+                         console.error("Error ajustando zoom:", error);
+                         mapaLoteAmb.setView([-33,-56], 7);
+                     }
+                 }
+             } catch (error) {
+                 console.error("Error al procesar GeoJSON:", error);
+                 if (mapaContainerAmb) {
+                     mapaContainerAmb.innerHTML = 
+                        '<div class="alert alert-danger p-3">Error al procesar la geometría del lote: ' + error.message + '</div>';
+                 }
+             }
+         });
+    </script>
+{% endblock %}

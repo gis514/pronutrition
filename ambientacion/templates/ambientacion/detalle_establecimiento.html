@@ -1,0 +1,420 @@
+{% extends "core/base.html" %}
+{% load static %}
+{% load ambientacion_extras %}  {# Cargar nuestros filtros personalizados #}
+
+{% block titulo_pagina %}Detalle: {{ establecimiento.nombre }}{% endblock %}
+{% block titulo_seccion %}Establecimiento: {{ establecimiento.nombre }} (Empresa: {{ empresa.nombre_razon_social }}){% endblock %}
+
+{% block head_extra %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #mapa-establecimiento { height: 400px; width: 100%; border: 1px solid #ccc; border-radius: 5px; margin-bottom: 1rem; background-color: #f8f9fa; }
+        .legend { /* ... estilos leyenda ... */ }
+        .lote-pendiente { border-left: 4px solid #ffc107; } /* Amarillo para pendiente */
+        .lote-listo-ambientar { border-left: 4px solid #0dcaf0; } /* Celeste para listo */
+        .lote-activo { border-left: 4px solid #198754; } /* Verde para activo */
+    </style>
+{% endblock %}
+
+{% block contenido %}
+    {# Mensajes #}
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{% if message.tags %}{{ message.tags }}{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+                {{ message }} <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    {# Fila: Info Establecimiento y Mapa Lotes #}
+    <div class="row mb-4">
+        <div class="col-lg-5 d-flex">
+            <div class="card flex-fill shadow-sm">
+                <div class="card-header bg-light"><h5 class="mb-0"><i class="fas fa-tractor me-2 text-primary"></i>Datos del Establecimiento</h5></div>
+                <div class="card-body">
+                    <p><strong>Nombre:</strong> {{ establecimiento.nombre }}</p>
+                    <p><strong>Ubicación:</strong> {{ establecimiento.ubicacion_descriptiva|default:"N/A" }}</p>
+                    <p><strong>Empresa:</strong> <a href="{% url 'ambientacion:detalle_empresa' empresa.id %}">{{ empresa.nombre_razon_social }}</a></p>
+                     {# Botón para iniciar la solicitud de digitalización #}
+                    <a href="{% url 'ambientacion:solicitar_digitalizacion_lote' establecimiento.id %}" class="btn btn-sm btn-info mt-2">
+                        <i class="fas fa-upload"></i> Solicitar Digitalización Nuevos Lotes
+                    </a>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-7 d-flex">
+            <div class="card flex-fill shadow-sm">
+                <div class="card-header bg-light"><h5 class="mb-0"><i class="fas fa-map-marked-alt me-2 text-primary"></i>Mapa de Lotes Vigentes</h5></div>
+                <div class="card-body p-2">
+                    <div id="mapa-establecimiento"><p class="text-center text-muted p-5">Cargando mapa...</p></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# --- Sección Lotes Pendientes de Validación (para Cliente/Agrónomo) --- #}
+    {% if user.is_authenticated and lotes_pendientes_validacion %}
+        {% if user.perfil_pronutrition.rol.id_rol == ROL_CLIENTE or user.perfil_pronutrition.rol.id_rol == ROL_ING_AGRONOMO %}
+            <div class="card mb-4 shadow-sm lote-pendiente">
+                <div class="card-header bg-warning text-dark"><h5 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Lotes Pendientes de Validación</h5></div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead><tr><th>Nombre Lote</th><th>Superficie</th><th>Acción</th></tr></thead>
+                            <tbody>
+                                {% for lote in lotes_pendientes_validacion %}
+                                <tr>
+                                    <td>{{ lote.nombre }}</td>
+                                    <td>{{ lote.superficie_calculada_has|floatformat:1 }} ha</td>
+                                    <td>
+                                        <a href="{% url 'ambientacion:validar_lote' lote.id %}" class="btn btn-sm btn-warning text-dark">
+                                            <i class="fas fa-check-double"></i> Revisar/Validar
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+
+    {# --- Sección Lotes Listos para Ambientar (para GIS/Agrónomo) --- #}
+    {% if user.is_authenticated and lotes_listos_ambientar %}
+        {% if user.perfil_pronutrition.rol.id_rol == ROL_GIS or user.perfil_pronutrition.rol.id_rol == ROL_ING_AGRONOMO %}
+            <div class="card mb-4 shadow-sm lote-listo-ambientar">
+                <div class="card-header bg-info text-dark"><h5 class="mb-0"><i class="fas fa-layer-group me-2"></i>Lotes Listos para Ambientar/Re-Ambientar</h5></div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead><tr><th>Nombre Lote</th><th>Superficie</th><th>Acción</th></tr></thead>
+                            <tbody>
+                                {% for lote in lotes_listos_ambientar %}
+                                <tr>
+                                    <td>{{ lote.nombre }}</td>
+                                    <td>{{ lote.superficie_calculada_has|floatformat:1 }} ha</td>
+                                    <td>
+                                        {# Enlace a la vista para subir ambientes para ESTE lote #}
+                                        <a href="{% url 'ambientacion:subir_ambientes_lote' lote.id %}" class="btn btn-sm btn-info text-dark">
+                                            <i class="fas fa-upload"></i> Cargar/Actualizar Ambientes
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+
+    {# --- Sección Lotes Activos --- #}
+    <div class="card mb-4 shadow-sm lote-activo">
+         <div class="card-header bg-success text-white"><h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Lotes Activos (Ambientación Completa)</h5></div>
+        <div class="card-body p-0">
+            {% if lotes_activos %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead><tr><th>Nombre Lote</th><th>Superficie</th><th>Ambientes</th><th>Acción</th></tr></thead>
+                        <tbody>
+                            {% for lote in lotes_activos %}
+                            <tr>
+                                <td>{{ lote.nombre }}</td>
+                                <td>{{ lote.superficie_calculada_has|floatformat:1 }} ha</td>
+                                <td>{{ lote.ambientes_vigentes_count }}</td>
+                                <td>
+                                    {# Enlace para ver detalles de los ambientes de este lote #}
+                                    <a href="#" class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#modalAmbientes{{ lote.id }}">
+                                        <i class="fas fa-eye"></i> Ver Ambientes
+                                    </a>
+                                     {# Opción de re-ambientar si es necesario #}
+                                     {% if user.is_authenticated %}
+                                        {% if user.perfil_pronutrition.rol.id_rol == ROL_GIS or user.perfil_pronutrition.rol.id_rol == ROL_ING_AGRONOMO %}
+                                            <a href="{% url 'ambientacion:subir_ambientes_lote' lote.id %}" class="btn btn-sm btn-outline-secondary ms-1" title="Re-Ambientar">
+                                                <i class="fas fa-sync-alt"></i>
+                                            </a>
+                                        {% endif %}
+                                     {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                {# Modales para mostrar los ambientes de cada lote activo #}
+                {% for lote in lotes_activos %}
+                <div class="modal fade" id="modalAmbientes{{ lote.id }}" tabindex="-1" aria-labelledby="modalAmbientesLabel{{ lote.id }}" aria-hidden="true">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="modalAmbientesLabel{{ lote.id }}">Ambientes de Lote: {{ lote.nombre }}</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                {% with lote_ambientes=ambientes_por_lote|get_item:lote.id %}
+                                    {% if lote_ambientes %}
+                                        <div class="table-responsive">
+                                            <table class="table table-sm">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Nombre</th>
+                                                        <th>Superficie</th>
+                                                        <th>Productividad</th>
+                                                        <th>Tipo de Suelo</th>
+                                                        <th>Estado</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for ambiente in lote_ambientes %}
+                                                    <tr>
+                                                        <td>{{ ambiente.nombre }}</td>
+                                                        <td>{{ ambiente.superficie_has|floatformat:1 }} ha</td>
+                                                        <td>{{ ambiente.productividad }}</td>
+                                                        <td>{{ ambiente.tipo_suelo_nombre }}</td>
+                                                        <td>
+                                                            <span class="badge {% if ambiente.estado_workflow == 'ACTIVO' %}bg-success{% elif ambiente.estado_workflow == 'PENDIENTE_VALIDACION_AGRONOMO' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                                                {{ ambiente.get_estado_workflow_display }}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    {% else %}
+                                        <p class="text-muted">No hay ambientes asociados a este lote.</p>
+                                    {% endif %}
+                                {% endwith %}
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                 <p class="p-3 text-muted mb-0">No hay lotes con ambientación activa.</p>
+            {% endif %}
+        </div>
+    </div>
+    
+    {# --- Sección Ambientes Pendientes de Validación (para Ing. Agrónomo) --- #}
+    {% if user.is_authenticated and user.perfil_pronutrition.rol.id_rol == ROL_ING_AGRONOMO and lotes_con_ambientes_pendientes %}
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Ambientes Pendientes de Validación</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Lote</th>
+                            <th>Ambientes Pendientes</th>
+                            <th>Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for lote, ambientes_count in lotes_con_ambientes_pendientes.items %}
+                        <tr>
+                            <td>{{ lote.nombre }}</td>
+                            <td>{{ ambientes_count }}</td>
+                            <td>
+                                <a href="{% url 'ambientacion:validar_enriquecer_ambientes' lote.id %}" class="btn btn-sm btn-warning text-dark">
+                                    <i class="fas fa-check-double"></i> Validar Ambientes
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+     {# --- Sección Tareas del Establecimiento --- #}
+     <div class="card mb-4 shadow-sm">
+         <div class="card-header bg-light"><h5 class="mb-0"><i class="fas fa-history me-2 text-primary"></i>Historial de Tareas del Establecimiento</h5></div>
+        <div class="card-body p-0">
+             {% if tareas_establecimiento %}
+               <div class="table-responsive">
+                   {# ... (tabla similar a la de detalle_empresa para tareas_relacionadas) ... #}
+                    <table class="table table-striped table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Tipo</th><th>Estado</th><th>Fecha</th><th>Usuario</th><th>Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for tarea in tareas_establecimiento %}
+                            <tr>
+                                <td><small>{{ tarea.get_tipo_tarea_display }}</small></td>
+                                <td>
+                                    <span class="badge rounded-pill {% if tarea.estado_tarea == 'PENDIENTE' %}bg-warning text-dark{% elif tarea.estado_tarea == 'COMPLETADA' %}bg-success{% else %}bg-secondary{% endif %}">{{ tarea.get_estado_tarea_display }}</span>
+                                </td>
+                                <td><small>{{ tarea.fecha_creacion|date:"d/m/y H:i" }}</small></td>
+                                <td><small>{{ tarea.creado_por|default:"-" }}</small></td>
+                                <td>{# Botón para ver tarea #}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+               </div>
+             {% else %}
+               <p class="p-3 text-muted mb-0">No hay tareas registradas para este establecimiento.</p>
+             {% endif %}
+        </div>
+     </div>
+
+    <hr>
+    <a href="{% url 'ambientacion:detalle_empresa' empresa.id %}" class="btn btn-secondary">
+        <i class="fas fa-arrow-left me-1"></i> Volver a {{ empresa.nombre_razon_social }}
+    </a>
+
+{% endblock %}
+
+{% block scripts_extra %}
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            console.log("Inicializando mapa establecimiento...");
+            
+            const mapaContainer = document.getElementById('mapa-establecimiento');
+            if (!mapaContainer) {
+                console.error("Contenedor del mapa no encontrado");
+                return;
+            }
+
+            // Obtener y convertir los datos GeoJSON con manejo de errores
+            try {
+                const lotesDataStr = '{{ lotes_geojson|escapejs|default:"null" }}';
+                console.log("Datos GeoJSON recibidos (primeros caracteres):", lotesDataStr.substring(0, 50) + "...");
+                
+                let lotesData;
+                try {
+                    lotesData = JSON.parse(lotesDataStr);
+                    // Debug para verificar estructura y coordenadas
+                    if (lotesData && lotesData.features && lotesData.features.length > 0) {
+                        const primerLote = lotesData.features[0];
+                        console.log("Primer lote - tipo geometría:", primerLote.geometry.type);
+                        console.log("Primer lote - ejemplo coordenadas:", 
+                            JSON.stringify(primerLote.geometry.coordinates[0][0]).substring(0, 50) + "...");
+                        console.log("Primer lote - propiedades:", primerLote.properties);
+                    }
+                } catch (e) {
+                    console.error("Error al parsear JSON:", e);
+                    mapaContainer.innerHTML = '<div class="alert alert-danger text-center p-4">Error al procesar datos geográficos</div>';
+                    return;
+                }
+                
+                const hayLotes = lotesData && lotesData.features && lotesData.features.length > 0;
+                console.log("¿Hay lotes para mostrar?", hayLotes, lotesData ? lotesData.features.length : 0);
+
+                if (!hayLotes) {
+                    mapaContainer.innerHTML = '<div class="alert alert-light text-center p-4">No hay lotes vigentes para mostrar en el mapa.</div>';
+                    return;
+                }
+
+                // Inicializar el mapa con CartoDB como fuente de tiles
+                const mapaEstablecimiento = L.map('mapa-establecimiento');
+                
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                    subdomains: 'abcd',
+                    maxZoom: 20
+                }).addTo(mapaEstablecimiento);
+
+                // Colorear lotes por estado
+                function getColorLote(estadoCode) {
+                    switch(estadoCode) {
+                        case 'PENDIENTE_VALIDACION_PRODUCTOR': return '#ffc107'; // Amarillo
+                        case 'VALIDADO_PRODUCTOR': case 'CON_AMBIENTACION_EN_PROCESO': return '#0dcaf0'; // Celeste
+                        case 'ACTIVO': return '#198754'; // Verde
+                        case 'EN_CORRECCION_GIS': return '#dc3545'; // Rojo
+                        default: return '#6c757d'; // Gris
+                    }
+                }
+
+                // Añadir la capa de lotes al mapa con más opciones de depuración
+                const lotesLayer = L.geoJSON(lotesData, {
+                    style: function(feature) {
+                        return {
+                            fillColor: getColorLote(feature.properties.estado_workflow_code),
+                            weight: 2,
+                            opacity: 1,
+                            color: '#333', // Borde oscuro
+                            fillOpacity: 0.5
+                        };
+                    },
+                    onEachFeature: function(feature, layer) {
+                        let prop = feature.properties;
+                        let popupContent = `<strong>Lote: ${prop.nombre || 'N/A'}</strong>`;
+                        popupContent += `<br>Estado: ${prop.estado_workflow || 'N/D'}`;
+                        popupContent += `<br>Sup.: ${prop.superficie_calculada_has ? parseFloat(prop.superficie_calculada_has).toFixed(1) + ' ha' : 'N/A'}`;
+                        popupContent += `<br><small>ID: ${prop.id}</small>`;
+                        layer.bindPopup(popupContent);
+                        layer.bindTooltip(`Lote: ${prop.nombre || 'N/A'} (${prop.estado_workflow || ''})`);
+                    }
+                }).addTo(mapaEstablecimiento);
+
+                console.log("Capa de lotes agregada al mapa");
+
+                // Ajustar la vista del mapa a los límites de los lotes
+                try {
+                    if (lotesLayer.getBounds().isValid()) {
+                        console.log("Ajustando zoom a bounds de lotes");
+                        const bounds = lotesLayer.getBounds();
+                        console.log("Bounds:", bounds.getSouth(), bounds.getWest(), bounds.getNorth(), bounds.getEast());
+                        mapaEstablecimiento.fitBounds(bounds.pad(0.1));
+                    } else {
+                        console.warn("No hay bounds válidos para lotes");
+                        mapaEstablecimiento.setView([-33, -56], 7);
+                    }
+                } catch (error) {
+                    console.error("Error al ajustar el zoom:", error);
+                    mapaEstablecimiento.setView([-33, -56], 7);
+                }
+
+                // Leyenda para estados de lote
+                var leyenda = L.control({position: 'bottomright'});
+                leyenda.onAdd = function (map) {
+                    var div = L.DomUtil.create('div', 'info legend');
+                    var estados = {
+                        'PENDIENTE_VALIDACION_PRODUCTOR': 'Pendiente Validación',
+                        'VALIDADO_PRODUCTOR': 'Validado (Listo p/ Ambientar)',
+                        'CON_AMBIENTACION_EN_PROCESO': 'Ambientación en Proceso',
+                        'ACTIVO': 'Activo (Ambientado)',
+                        'EN_CORRECCION_GIS': 'Requiere Corrección GIS'
+                    };
+                    var colores = {
+                         'PENDIENTE_VALIDACION_PRODUCTOR': '#ffc107',
+                         'VALIDADO_PRODUCTOR': '#0dcaf0',
+                         'CON_AMBIENTACION_EN_PROCESO': '#0dcaf0', // Mismo color que validado?
+                         'ACTIVO': '#198754',
+                         'EN_CORRECCION_GIS': '#dc3545'
+                    };
+                    div.innerHTML += '<strong>Estado Lote</strong><br>';
+                    let estadosPresentes = new Set(lotesData.features.map(f => f.properties.estado_workflow_code));
+                    for (var key in estados) {
+                        if (estadosPresentes.has(key)) {
+                             var color = colores[key] || '#6c757d';
+                             div.innerHTML += '<i style="background:' + color + '"></i> ' + estados[key] + '<br>';
+                        }
+                    }
+                    return div;
+                };
+                leyenda.addTo(mapaEstablecimiento);
+                
+            } catch (error) {
+                console.error("Error general en la inicialización del mapa:", error);
+                mapaContainer.innerHTML = '<div class="alert alert-danger text-center p-4">Error al cargar el mapa: ' + error.message + '</div>';
+            }
+        });
+    </script>
+{% endblock %}

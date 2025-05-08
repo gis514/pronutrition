@@ -1,0 +1,15 @@
+{% extends "core/base.html" %}
+{% load crispy_forms_tags %}
+{% block titulo_pagina %}Seleccionar Lote/Zafra{% endblock %}
+{% block titulo_seccion %}Seleccionar Lote y Zafra para Planificar{% endblock %}
+
+{% block contenido %}
+    <p>Selecciona el lote y la zafra para la cual deseas definir o editar la planificación de cultivos por ambiente.</p>
+    <form method="post">
+        {% csrf_token %}
+        {{ form|crispy }}
+        <button type="submit" class="btn btn-primary mt-3">
+            <i class="fas fa-arrow-right me-1"></i> Continuar a Planificación
+        </button>
+    </form>
+{% endblock %}

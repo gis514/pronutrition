@@ -1,0 +1,126 @@
+{% extends "core/base.html" %}
+{% load crispy_forms_tags %}
+{% load static %}
+
+{% block titulo_pagina %}Validar Lote: {{ lote.nombre }}{% endblock %}
+{% block titulo_seccion %}Validar Digitalización Lote: {{ lote.nombre }}{% endblock %}
+
+{% block head_extra %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #mapa-lote-validacion { height: 400px; width: 100%; border: 1px solid #ccc; border-radius: 5px; margin-bottom: 1rem; background-color: #f8f9fa;}
+    </style>
+{% endblock %}
+
+{% block contenido %}
+    {# Mensajes #}
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{% if message.tags %}{{ message.tags }}{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+                {{ message }} <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="row">
+        <div class="col-lg-7">
+             <div class="card mb-3 shadow-sm">
+                 <div class="card-header bg-light"><h5 class="mb-0"><i class="fas fa-vector-square me-2"></i>Geometría a Validar</h5></div>
+                 <div class="card-body p-2">
+                      <div id="mapa-lote-validacion"><p class="text-center text-muted p-3">Cargando mapa...</p></div>
+                 </div>
+             </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card mb-3 shadow-sm">
+                <div class="card-header bg-light"><h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Datos del Lote</h5></div>
+                <div class="card-body">
+                    <p><strong>Nombre Propuesto:</strong> {{ lote.nombre }}</p>
+                    <p><strong>Establecimiento:</strong> {{ lote.establecimiento.nombre }}</p>
+                    <p><strong>Empresa:</strong> {{ lote.establecimiento.empresa.nombre_razon_social }}</p>
+                    <p><strong>Superficie Calculada:</strong> {{ lote.superficie_calculada_has|floatformat:1 }} ha</p>
+                    <p><strong>Estado Actual:</strong> <span class="badge bg-warning text-dark">{{ lote.get_estado_workflow_display }}</span></p>
+                    {# Aquí podrías mostrar el PDF generado por GIS si lo hubieras asociado #}
+                </div>
+            </div>
+            <div class="card shadow-sm">
+                <div class="card-header bg-light"><h5 class="mb-0"><i class="fas fa-check-double me-2"></i>Acciones de Validación</h5></div>
+                <div class="card-body text-center">
+                     <p>¿La digitalización del lote es correcta?</p>
+                     {# Formulario para Aprobar #}
+                     <form method="post" class="d-inline me-2">
+                         {% csrf_token %}
+                         <button type="submit" name="accion" value="aprobar" class="btn btn-success btn-lg">
+                             <i class="fas fa-check me-1"></i> Sí, Aprobar
+                         </button>
+                     </form>
+                     {# Botón para abrir Modal de Rechazo #}
+                     <button type="button" class="btn btn-danger btn-lg" data-bs-toggle="modal" data-bs-target="#rechazarModal">
+                         <i class="fas fa-times me-1"></i> No, Rechazar
+                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <hr>
+    <a href="{% url 'ambientacion:detalle_establecimiento' lote.establecimiento.id %}" class="btn btn-secondary">
+        <i class="fas fa-arrow-left me-1"></i> Volver a {{ lote.establecimiento.nombre }}
+    </a>
+
+    <div class="modal fade" id="rechazarModal" tabindex="-1" aria-labelledby="rechazarModalLabel" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <form method="post"> {# El action de este form irá a la misma URL (validar_lote) #}
+              {% csrf_token %}
+              <div class="modal-header">
+                <h1 class="modal-title fs-5" id="rechazarModalLabel">Rechazar Digitalización de Lote: {{ lote.nombre }}</h1>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <p>Por favor, indica el motivo del rechazo o las correcciones necesarias para el equipo GIS.</p>
+                <div class="mb-3">
+                  <label for="comentarios_rechazo" class="form-label">Comentarios para GIS: <span class="text-danger">*</span></label>
+                  <textarea class="form-control" id="comentarios_rechazo" name="comentarios_rechazo" rows="4" required></textarea>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" name="accion" value="rechazar" class="btn btn-danger">Enviar Rechazo a GIS</button>
+              </div>
+          </form>
+        </div>
+      </div>
+    </div>
+{% endblock %}
+
+{% block scripts_extra %}
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+         document.addEventListener('DOMContentLoaded', function () {
+             const mapaContainerVal = document.getElementById('mapa-lote-validacion');
+             // Pasamos el GeoJSON específico del lote desde la vista
+             const loteGeoJsonVal = JSON.parse('{{ lote.geometria.geojson|escapejs|default:"null" }}');
+
+             if (mapaContainerVal && loteGeoJsonVal) {
+                 const mapaLoteVal = L.map('mapa-lote-validacion').setView([-33,-56], 7); // Centro inicial
+                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                     attribution: '&copy; OSM contributors'
+                 }).addTo(mapaLoteVal);
+
+                 const loteLayerVal = L.geoJSON(loteGeoJsonVal, {
+                      // Estilo para lote pendiente de validación
+                      style: { fillColor: '#ffc107', weight: 2.5, color: '#343a40', fillOpacity: 0.5 }
+                 }).addTo(mapaLoteVal);
+                 loteLayerVal.bindTooltip("Lote a validar: {{ lote.nombre|escapejs }}");
+
+                 // Ajustar zoom al lote
+                 if (loteLayerVal.getBounds().isValid()) {
+                     mapaLoteVal.fitBounds(loteLayerVal.getBounds().pad(0.1));
+                 }
+             } else if (mapaContainerVal) {
+                 mapaContainerVal.innerHTML = '<p class="text-muted text-center p-3">Error al cargar geometría del lote para validar.</p>';
+             }
+         });
+    </script>
+{% endblock %}

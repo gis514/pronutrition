@@ -1,0 +1,386 @@
+{% extends "core/base.html" %}
+{% load static %}
+{% load crispy_forms_tags %}
+
+{% block titulo_pagina %}Planificación - Seleccionar Ambientes{% endblock %}
+{% block titulo_seccion %}Planificación: Seleccionar Ambientes a Planificar{% endblock %}
+
+{% block head_extra %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    {# CSS para Leaflet.draw si quieres herramientas de dibujo/selección en mapa #}
+    {# <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/> #}
+    <style>
+        #mapa-seleccion-ambientes { height: 500px; width: 100%; border: 1px solid #ccc; border-radius: 5px; margin-bottom: 1rem; background-color: #f8f9fa;}
+        #lista-ambientes { max-height: 500px; overflow-y: auto; border: 1px solid #eee; padding: 0.5rem; border-radius: 5px;}
+        .ambiente-item { display: flex; align-items: center; padding: 0.4rem 0.8rem; border-bottom: 1px solid #eee; }
+        .ambiente-item:last-child { border-bottom: none; }
+        .ambiente-item input[type="checkbox"] { margin-right: 0.8rem; }
+        .ambiente-item label { margin-bottom: 0; flex-grow: 1; cursor: pointer;}
+        .ambiente-item:hover { background-color: #f8f9fa; }
+        .map-legend { /* ... estilos leyenda ... */ }
+        .map-legend i { /* ... estilos leyenda ... */ }
+        .ambiente-seleccionado { /* Estilo para polígono seleccionado en mapa */
+            fillColor: var(--secondary-color) !important; /* Verde lima */
+            fillOpacity: 0.8 !important;
+            color: var(--dark-green) !important; /* Borde oscuro */
+            weight: 2 !important;
+        }
+    </style>
+{% endblock %}
+
+{% block contenido %}
+    {# Mensajes #}
+    {% include 'includes/messages.html' %}
+    
+    {# Debug Info Panel - Solo visible para desarrollo #}
+    {% if debug_info %}
+    <div class="card mb-3 border-warning">
+        <div class="card-header bg-warning">
+            <h5 class="mb-0">
+                <button class="btn btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#debugPanel" aria-expanded="false">
+                    <i class="fas fa-bug"></i> Información de Depuración
+                </button>
+            </h5>
+        </div>
+        <div id="debugPanel" class="collapse">
+            <div class="card-body">
+                <h6>Parámetros de solicitud:</h6>
+                <pre>{{ debug_info.request_params }}</pre>
+                
+                <h6>Empresa seleccionada:</h6>
+                <pre>ID: {{ debug_info.empresa_id }}</pre>
+                
+                <h6>Establecimientos encontrados:</h6>
+                <pre>Cantidad: {{ debug_info.establecimientos_count }}</pre>
+                {% if debug_info.establecimientos_list %}
+                    <ul>
+                        {% for est in debug_info.establecimientos_list %}
+                            <li>{{ est.id }} - {{ est.nombre }}</li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+                
+                <h6>Establecimiento seleccionado:</h6>
+                <pre>ID: {{ debug_info.establecimiento_id }}</pre>
+                
+                <h6>Lotes encontrados:</h6>
+                <pre>Cantidad: {{ debug_info.lotes_count }}</pre>
+                {% if debug_info.lotes_list %}
+                    <ul>
+                        {% for lote in debug_info.lotes_list %}
+                            <li>{{ lote.id }} - {{ lote.nombre }}</li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+                
+                <h6>Formulario válido: {{ debug_info.form_valid }}</h6>
+                {% if debug_info.form_errors %}
+                    <h6>Errores del Formulario:</h6>
+                    <pre>{{ debug_info.form_errors }}</pre>
+                {% endif %}
+                
+                {% if debug_info.cleaned_data %}
+                    <h6>Datos limpios:</h6>
+                    <pre>{{ debug_info.cleaned_data }}</pre>
+                {% endif %}
+                
+                {% if debug_info.error_establecimientos %}
+                    <div class="alert alert-danger">Error establecimiento: {{ debug_info.error_establecimientos }}</div>
+                {% endif %}
+                
+                {% if debug_info.error_lotes %}
+                    <div class="alert alert-danger">Error lotes: {{ debug_info.error_lotes }}</div>
+                {% endif %}
+                
+                {% if debug_info.error_geojson %}
+                    <div class="alert alert-danger">Error GeoJSON: {{ debug_info.error_geojson }}</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {# Formulario de Filtros (GET) #}
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-filter me-2 text-primary"></i>Seleccionar Lote y Zafra</h5>
+        </div>
+        <div class="card-body">
+            {# Usamos GET para que los filtros se mantengan en la URL al refrescar/compartir #}
+            <form method="get" id="form-filtros">
+                {# Renderizar form_filtros con crispy o manualmente #}
+                <div class="row">
+                    <div class="col-md-3">{{ form_filtros.empresa|as_crispy_field }}</div>
+                    <div class="col-md-3">{{ form_filtros.establecimiento|as_crispy_field }}</div>
+                    <div class="col-md-3">{{ form_filtros.lote|as_crispy_field }}</div>
+                    <div class="col-md-2">{{ form_filtros.año_zafra|as_crispy_field }}</div>
+                    <div class="col-md-1">{{ form_filtros.tipo_zafra|as_crispy_field }}</div>
+                </div>
+                <button type="submit" class="btn btn-primary mt-2" id="btn-cargar-ambientes">
+                    <i class="fas fa-search me-1"></i> Cargar Ambientes
+                </button>
+                
+                <script>
+                    document.addEventListener('DOMContentLoaded', function() {
+                        const form = document.getElementById('form-filtros');
+                        const empresaSelect = document.getElementById('id_empresa');
+                        const establecimientoSelect = document.getElementById('id_establecimiento');
+                        const loteSelect = document.getElementById('id_lote');
+                        
+                        // Inicialmente deshabilitamos los selects dependientes si no hay selección
+                        if (!empresaSelect.value) {
+                            establecimientoSelect.disabled = true;
+                        }
+                        if (!establecimientoSelect.value) {
+                            loteSelect.disabled = true;
+                        }
+                        
+                        // Cuando cambia la empresa
+                        empresaSelect.addEventListener('change', function() {
+                            // Reiniciar y deshabilitar selects dependientes
+                            establecimientoSelect.innerHTML = '<option value="">---------</option>';
+                            establecimientoSelect.disabled = true;
+                            
+                            loteSelect.innerHTML = '<option value="">---------</option>';
+                            loteSelect.disabled = true;
+                            
+                            if (this.value) {
+                                // Habilitar el select de establecimiento y enviar form
+                                establecimientoSelect.disabled = false;
+                                form.submit();
+                            }
+                        });
+                        
+                        // Cuando cambia el establecimiento
+                        establecimientoSelect.addEventListener('change', function() {
+                            // Reiniciar y deshabilitar select de lote
+                            loteSelect.innerHTML = '<option value="">---------</option>';
+                            loteSelect.disabled = true;
+                            
+                            if (this.value) {
+                                // Habilitar el select de lote y enviar form
+                                loteSelect.disabled = false;
+                                form.submit();
+                            }
+                        });
+                        
+                        // Habilitar los controles según el estado actual
+                        if (empresaSelect.value) {
+                            establecimientoSelect.disabled = false;
+                            
+                            if (establecimientoSelect.value) {
+                                loteSelect.disabled = false;
+                            }
+                        }
+                    });
+                </script>
+            </form>
+        </div>
+    </div>
+
+    {# Mostrar Mapa y Lista solo si se ha seleccionado un lote #}
+    {% if lote_seleccionado %}
+    <form method="post" action="{% url 'planificacion:planificar_usos_lote' lote_id=lote_seleccionado.id ano=año_zafra_seleccionado zafra_tipo=tipo_zafra_seleccionado %}">
+         {% csrf_token %}
+         {# Pasamos los parámetros de zafra ocultos para la siguiente vista #}
+         <input type="hidden" name="año_zafra" value="{{ año_zafra_seleccionado }}">
+         <input type="hidden" name="tipo_zafra" value="{{ tipo_zafra_seleccionado }}">
+
+        <div class="row">
+            <div class="col-lg-7">
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                         <h5 class="mb-0"><i class="fas fa-map-marked-alt me-2 text-primary"></i>Mapa de Ambientes - Lote: {{ lote_seleccionado.nombre }}</h5>
+                         <small class="text-muted">Haga clic en un ambiente para seleccionarlo/deseleccionarlo</small>
+                    </div>
+                    <div class="card-body p-2">
+                         <div id="mapa-seleccion-ambientes"><p class="text-center text-muted p-5">Cargando mapa...</p></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-5"> 
+                <div class="card shadow-sm mb-3">
+                     <div class="card-header bg-light">
+                         <div class="d-flex justify-content-between align-items-center">
+                             <h5 class="mb-0"><i class="fas fa-tasks me-2 text-primary"></i>Seleccionar Ambientes</h5>
+                             <div>
+                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-select-all">Todos</button>
+                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-select-none">Ninguno</button>
+                             </div>
+                         </div>
+                     </div>
+                    <div class="card-body">
+                        <div id="lista-ambientes">
+                            {% for ambiente in ambientes_lote %}
+                                <div class="ambiente-item" data-ambiente-id="{{ ambiente.id }}">
+                                    <input class="form-check-input ambiente-checkbox" type="checkbox" value="{{ ambiente.id }}" name="ambientes_seleccionados" id="ambiente-{{ ambiente.id }}">
+                                    <label class="form-check-label" for="ambiente-{{ ambiente.id }}">
+                                        {{ ambiente.nombre }} <small class="text-muted">({{ ambiente.superficie_has|floatformat:1 }} ha / Prod: {{ ambiente.get_productividad_display|default:'-' }})</small>
+                                    </label>
+                                </div>
+                            {% empty %}
+                                <p class="text-muted">No hay ambientes activos para este lote.</p>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="card-footer text-end">
+                        <button type="submit" class="btn btn-success" id="btn-continuar" disabled>
+                            <i class="fas fa-arrow-right me-1"></i> Continuar a Planificar (<span id="contador-seleccionados">0</span>)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+    {% else %}
+        <div class="alert alert-info">Por favor, seleccione Empresa, Establecimiento, Lote y Zafra para cargar los ambientes.</div>
+    {% endif %}
+
+{% endblock %}
+
+
+{% block scripts_extra %}
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    {# JS para Leaflet.draw si lo usas para selección gráfica avanzada #}
+    {# <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script> #}
+
+    <script type="text/javascript">
+        document.addEventListener('DOMContentLoaded', function () {
+            const mapaContainer = document.getElementById('mapa-seleccion-ambientes');
+            
+            // Datos GeoJSON ambientes
+            {% if ambientes_geojson %}
+                var ambientesData = {{ ambientes_geojson|safe }};
+            {% else %}
+                var ambientesData = null;
+            {% endif %}
+            
+            const checkboxes = document.querySelectorAll('.ambiente-checkbox');
+            const btnContinuar = document.getElementById('btn-continuar');
+            const contadorSpan = document.getElementById('contador-seleccionados');
+            const btnSelectAll = document.getElementById('btn-select-all');
+            const btnSelectNone = document.getElementById('btn-select-none');
+
+            let mapaSeleccion = null;
+            let ambienteLayers = {}; // Para mapear ID de ambiente a capa de Leaflet
+
+            // --- Inicializar Mapa (si hay datos) ---
+            if (mapaContainer && ambientesData && ambientesData.features && ambientesData.features.length > 0) {
+                mapaSeleccion = L.map('mapa-seleccion-ambientes').setView([-33, -56], 13); // Zoom más cercano
+
+                // --- Capa Base Satelital (Ejemplo con ESRI World Imagery) ---
+                const esriSatellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+                });
+                // Capa base OpenStreetMap (como alternativa)
+                const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                });
+                
+                osm.addTo(mapaSeleccion); // Añadir OSM por defecto
+
+                // --- Cargar Ambientes ---
+                function getColorAmbiente(prod) {
+                    // Devuelve color según productividad
+                    switch(prod) {
+                        case 'A': return '#4CAF50'; // Verde para Alta productividad
+                        case 'M': return '#FFC107'; // Amarillo para Media productividad
+                        case 'B': return '#FF9800'; // Naranja para Baja productividad
+                        case 'MB': return '#F44336'; // Rojo para Muy Baja productividad
+                        default: return '#9E9E9E'; // Gris para sin datos
+                    }
+                }
+
+                const ambientesLayer = L.geoJSON(ambientesData, {
+                    style: function (feature) {
+                        return {
+                            fillColor: getColorAmbiente(feature.properties.productividad),
+                            weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.6
+                        };
+                    },
+                    onEachFeature: function (feature, layer) {
+                        const ambienteId = feature.properties.id;
+                        ambienteLayers[ambienteId] = layer; // Guardar referencia a la capa
+
+                        layer.bindTooltip(feature.properties.nombre || `Ambiente ID ${ambienteId}`);
+
+                        // --- Lógica de Selección Mapa <-> Checkbox ---
+                        layer.on('click', function(e) {
+                            const checkbox = document.getElementById(`ambiente-${ambienteId}`);
+                            if (checkbox) {
+                                checkbox.checked = !checkbox.checked;
+                                // Disparar evento change para actualizar contador y estilo
+                                checkbox.dispatchEvent(new Event('change'));
+                            }
+                        });
+                    }
+                }).addTo(mapaSeleccion);
+
+                // Ajustar zoom
+                if (ambientesLayer.getBounds().isValid()) {
+                    mapaSeleccion.fitBounds(ambientesLayer.getBounds().pad(0.1));
+                }
+
+                // --- Control de Capas ---
+                var baseMaps = {"OpenStreetMap": osm, "Satélite ESRI": esriSatellite};
+                var overlayMaps = {"Ambientes": ambientesLayer};
+                L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(mapaSeleccion);
+
+                // --- Sincronización Checkbox -> Mapa ---
+                checkboxes.forEach(cb => {
+                    cb.addEventListener('change', function() {
+                        const id = this.value;
+                        const layer = ambienteLayers[id];
+                        if (layer) {
+                            if (this.checked) {
+                                layer.setStyle({
+                                    fillColor: 'var(--secondary-color)', // Color de selección
+                                    fillOpacity: 0.8,
+                                    color: 'var(--dark-green)', weight: 2
+                                });
+                                layer.bringToFront();
+                            } else {
+                                // Volver al estilo original (basado en productividad)
+                                layer.setStyle({
+                                    fillColor: getColorAmbiente(layer.feature.properties.productividad),
+                                    weight: 1.5, color: 'white', fillOpacity: 0.6
+                                });
+                            }
+                        }
+                        actualizarEstadoBotonContinuar();
+                    });
+                });
+
+                // --- Botones Seleccionar Todos/Ninguno ---
+                btnSelectAll.addEventListener('click', () => {
+                    checkboxes.forEach(cb => {
+                        if (!cb.checked) {
+                           cb.checked = true;
+                           cb.dispatchEvent(new Event('change'));
+                        }
+                    });
+                });
+                btnSelectNone.addEventListener('click', () => {
+                     checkboxes.forEach(cb => {
+                        if (cb.checked) {
+                           cb.checked = false;
+                           cb.dispatchEvent(new Event('change'));
+                        }
+                    });
+                });
+
+                 // --- Actualizar contador y estado del botón Continuar ---
+                function actualizarEstadoBotonContinuar() {
+                    const seleccionados = document.querySelectorAll('.ambiente-checkbox:checked').length;
+                    contadorSpan.textContent = seleccionados;
+                    btnContinuar.disabled = (seleccionados === 0);
+                }
+                // Llamada inicial
+                actualizarEstadoBotonContinuar();
+
+            } else if (mapaContainer) {
+                 mapaContainer.innerHTML = '<div class="alert alert-light text-center p-4">No hay ambientes activos para mostrar en el mapa para el lote seleccionado.</div>';
+            }
+        });
+    </script>
+{% endblock %}

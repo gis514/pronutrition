@@ -1,0 +1,344 @@
+{% extends "core/base.html" %}
+{% load static %} {# Cargamos static por si se usa en algún icono o imagen futura #}
+
+{% block titulo_pagina %}Detalle: {{ empresa.nombre_razon_social }}{% endblock %}
+{% block titulo_seccion %}Empresa: {{ empresa.nombre_razon_social }}{% endblock %}
+
+{% block head_extra %}
+    {# Reemplazar con la CDN oficial de Leaflet sin atributos integrity #}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #mapa-empresa {
+            height: 450px; /* Altura del mapa */
+            width: 100%;
+            border-radius: 0.375rem; /* Bordes redondeados Bootstrap */
+            border: 1px solid #dee2e6; /* Borde Bootstrap */
+            margin-bottom: 1.5rem; /* Espacio inferior */
+            background-color: #e9ecef; /* Fondo mientras carga */
+        }
+        /* Estilos para la leyenda (igual que antes) */
+        .legend {
+            padding: 6px 10px; font-size: 13px; background: rgba(255,255,255,0.85);
+            box-shadow: 0 0 15px rgba(0,0,0,0.2); border-radius: 5px; line-height: 18px; color: #555;
+        }
+        .legend i { width: 16px; height: 16px; float: left; margin-right: 8px; opacity: 0.75; border: 1px solid rgba(0,0,0,0.3); }
+    </style>
+{% endblock %}
+
+{% block contenido %}
+    {# Mensajes (si los hay) #}
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{% if message.tags %}{{ message.tags }}{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    {# --- Fila Superior: Datos Empresa y Mapa --- #}
+    <div class="row mb-4">
+        <div class="col-lg-5 d-flex"> {# d-flex para que la tarjeta ocupe altura #}
+            <div class="card flex-fill shadow-sm"> {# flex-fill para ocupar altura #}
+                <div class="card-header bg-light">
+                     <h5 class="mb-0"><i class="fas fa-building me-2 text-primary"></i>Datos de la Empresa</h5>
+                 </div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Razón Social:</dt> <dd class="col-sm-8">{{ empresa.nombre_razon_social }}</dd>
+                        <dt class="col-sm-4">RUT:</dt> <dd class="col-sm-8">{{ empresa.rut|default_if_none:"N/A" }}</dd>
+                        <dt class="col-sm-4">Dirección:</dt> <dd class="col-sm-8">{{ empresa.direccion|default_if_none:"N/A" }}</dd>
+                        <dt class="col-sm-4">Teléfono:</dt> <dd class="col-sm-8">{{ empresa.telefono|default_if_none:"N/A" }}</dd>
+                        <dt class="col-sm-4">Email:</dt> <dd class="col-sm-8">{{ empresa.email_contacto|default_if_none:"N/A" }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-7 d-flex">
+             <div class="card flex-fill shadow-sm">
+                 <div class="card-header bg-light">
+                      <h5 class="mb-0">
+                          <i class="fas fa-map-marked-alt me-2 text-primary"></i>
+                          Mapa de Lotes y Ambientes Vigentes 
+                          <small class="text-muted">(Lotes: {{ lotes_count|default:"0" }})</small>
+                      </h5>
+                 </div>
+                 <div class="card-body p-2">
+                    <div id="mapa-empresa">
+                        <p class="text-center text-muted p-5">Cargando mapa...</p>
+                    </div>
+                 </div>
+            </div>
+        </div>
+    </div>
+
+    {# --- Fila Inferior: Establecimientos y Tareas --- #}
+    <div class="row">
+        <div class="col-lg-6">
+            {# Tarjeta de Establecimientos #}
+            <div class="card mb-4 shadow-sm">
+                 <div class="card-header bg-light">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-tractor me-2 text-primary"></i> Establecimientos</h5>
+                        <a href="{% url 'ambientacion:crear_establecimiento' empresa.id %}" class="btn btn-sm btn-primary">
+                            <i class="fas fa-plus"></i> Nuevo
+                        </a>
+                    </div>
+                 </div>
+                 <div class="card-body p-0">
+                     {% if establecimientos %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Nombre</th>
+                                        <th>Lotes Vig.</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for est in establecimientos %}
+                                        <tr>
+                                            <td>{{ est.nombre }}</td>
+                                            <td>{{ est.lotes_vigentes_count }}</td> {# Usamos el valor precalculado #}
+                                            <td>
+                                                {# NUEVO: Enlace al detalle del establecimiento #}
+                                                <a href="{% url 'ambientacion:detalle_establecimiento' est.id %}" class="btn btn-sm btn-outline-primary" title="Ver Detalles del Establecimiento">
+                                                    <i class="fas fa-eye"></i> Ver Detalles
+                                                </a>
+                                                {# Ya no ponemos 'Solicitar Lotes' aquí, se hará desde el detalle del establecimiento si es necesario #}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="p-3 text-muted mb-0">No hay establecimientos registrados.</p>
+                    {% endif %}
+                 </div>
+            </div>
+        </div>
+
+         <div class="col-lg-6">
+             {# Tarjeta de Tareas Recientes #}
+            <div class="card mb-4 shadow-sm">
+                 <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="fas fa-tasks me-2 text-primary"></i> Tareas Recientes Relacionadas</h5>
+                 </div>
+                 <div class="card-body p-0">
+                      {% if tareas_relacionadas %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Tipo</th>
+                                        <th>Relacionado</th>
+                                        <th>Estado</th>
+                                        <th>Fecha</th>
+                                        <th>Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for tarea in tareas_relacionadas %}
+                                        <tr>
+                                            <td><small>{{ tarea.get_tipo_tarea_display }}</small></td>
+                                            <td><small>{{ tarea.entidad_relacionada.nombre|default:"N/A" }}</small></td>
+                                            <td>
+                                                <span class="badge rounded-pill
+                                                    {% if tarea.estado_tarea == 'PENDIENTE' or tarea.estado_tarea == 'REQUIERE_CORRECCION' %}bg-warning text-dark
+                                                    {% elif tarea.estado_tarea == 'COMPLETADA' %}bg-success
+                                                    {% elif tarea.estado_tarea == 'ASIGNADA' or tarea.estado_tarea == 'EN_PROGRESO' %}bg-info text-dark
+                                                    {% elif tarea.estado_tarea == 'CANCELADA' %}bg-danger
+                                                    {% else %}bg-secondary
+                                                    {% endif %}">
+                                                    {{ tarea.get_estado_tarea_display }}
+                                                 </span>
+                                            </td>
+                                            <td><small>{{ tarea.fecha_creacion|date:"d/m/y" }}</small></td>
+                                            <td>
+                                                {# Solo mostramos procesar si la tarea está pendiente y el user es GIS #}
+                                                {% if tarea.tipo_tarea == 'DIGITALIZAR_LOTES' and tarea.estado_tarea == 'PENDIENTE' and user.is_authenticated and user.perfil_pronutrition.rol.id_rol == 'area_gis' %}
+                                                 <a href="{% url 'ambientacion:procesar_digitalizacion_lote' tarea.id %}" class="btn btn-sm btn-outline-primary" title="Procesar Tarea">
+                                                     <i class="fas fa-arrow-right"></i>
+                                                 </a>
+                                                {% else %}
+                                                 {# <a href="#" class="btn btn-sm btn-outline-secondary disabled" title="Ver Tarea"><i class="fas fa-eye"></i></a> #}
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="p-3 text-muted mb-0">No hay tareas recientes relacionadas.</p>
+                    {% endif %}
+                 </div>
+            </div>
+        </div>
+    </div> {# Fin .row #}
+
+    <hr>
+    <a href="{% url 'ambientacion:lista_empresas' %}" class="btn btn-secondary">
+        <i class="fas fa-arrow-left me-1"></i> Volver al listado de Empresas
+    </a>
+
+{% endblock %}
+
+{% block scripts_extra %}
+{# Reemplazar con la CDN oficial de Leaflet sin atributos integrity #}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        console.log("Inicializando mapa...");
+        
+        // --- Obtener Datos GeoJSON ---
+        try {
+            let lotesDataStr = '{{ lotes_geojson|escapejs|default:"null" }}';
+            let ambientesDataStr = '{{ ambientes_geojson|escapejs|default:"null" }}';
+            
+            console.log("String GeoJSON Lotes:", lotesDataStr.substring(0, 100) + "...");
+            
+            const lotesData = lotesDataStr !== "null" ? JSON.parse(lotesDataStr) : null;
+            const ambientesData = ambientesDataStr !== "null" ? JSON.parse(ambientesDataStr) : null;
+            
+            console.log("Lotes parseados:", lotesData ? lotesData.features.length : 0);
+            console.log("Ambientes parseados:", ambientesData ? ambientesData.features.length : 0);
+            
+            // Resto del código como estaba antes...
+            const mapaContainer = document.getElementById('mapa-empresa');
+
+            if (!mapaContainer) {
+                console.error("Contenedor del mapa 'mapa-empresa' no encontrado.");
+                return;
+            }
+            
+            // Verificar si hay datos para mostrar
+            const hayLotes = lotesData && lotesData.features && lotesData.features.length > 0;
+            const hayAmbientes = ambientesData && ambientesData.features && ambientesData.features.length > 0;
+
+            if (!hayLotes && !hayAmbientes) {
+                mapaContainer.innerHTML = '<div class="alert alert-info text-center p-4">' +
+                    '<i class="fas fa-info-circle me-2"></i> ' +
+                    'No hay datos geográficos vigentes para mostrar ({{ lotes_count }} lotes encontrados). ' +
+                    'Puede solicitar la digitalización de lotes desde la sección Establecimientos.</div>';
+                return;
+            }
+            
+            // --- Inicializar Mapa ---
+            const mapaEmpresa = L.map('mapa-empresa', {
+                 scrollWheelZoom: true
+            }).setView([-33, -56], 7); // Vista inicial
+
+            // --- Capa Base --- usando un proveedor de tiles alternativo por si acaso
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                subdomains: 'abcd',
+                maxZoom: 20
+            }).addTo(mapaEmpresa);
+
+            let layersControl = null;
+            let capasSuperpuestas = {};
+            let boundsToFit = null; // Para ajustar el zoom
+
+            // --- Función de Colores ---
+            function getColorAmbiente(productividad) {
+                switch (productividad) {
+                    case 'A': return '#28a745'; case 'D': return '#ffc107';
+                    case 'B': return '#fd7e14'; case 'OTRA': return '#6c757d';
+                    default: return '#adb5bd';
+                }
+            }
+
+            // --- Cargar Ambientes (si existen) ---
+            let ambientesLayer = null;
+            if (hayAmbientes) {
+                ambientesLayer = L.geoJSON(ambientesData, {
+                    style: function (feature) { /* ... como antes ... */
+                        return {
+                            fillColor: getColorAmbiente(feature.properties.productividad),
+                            weight: 1, opacity: 1, color: 'white', fillOpacity: 0.70
+                        };
+                    },
+                    onEachFeature: function (feature, layer) { /* ... como antes ... */
+                        let prop = feature.properties;
+                        let popupContent = `<strong>Amb.: ${prop.nombre || 'N/A'}</strong> (${prop.superficie_has ? parseFloat(prop.superficie_has).toFixed(1) + ' ha' : 'N/A'})`;
+                        popupContent += `<br>Lote: ${prop.lote_nombre || 'N/A'}`;
+                        popupContent += `<br>Estab.: ${prop.establecimiento_nombre || 'N/A'}`;
+                        popupContent += `<br>Prod.: ${prop.productividad || 'N/D'} | Suelo: ${prop.tipo_suelo_nombre || 'N/D'}`;
+                        layer.bindPopup(popupContent);
+                        layer.bindTooltip(prop.nombre || 'Ambiente');
+                    }
+                }).addTo(mapaEmpresa);
+                capasSuperpuestas["Ambientes (por Prod.)"] = ambientesLayer;
+                boundsToFit = ambientesLayer.getBounds(); // Prioridad para ajustar zoom
+            }
+
+            // --- Cargar Lotes (si existen) ---
+            let lotesLayer = null;
+            if (hayLotes) {
+                lotesLayer = L.geoJSON(lotesData, {
+                    style: function (feature) { /* ... como antes ... */
+                        return { fillOpacity: 0, weight: 2.5, color: '#343a40' };
+                    },
+                     onEachFeature: function (feature, layer) { /* ... como antes ... */
+                         let prop = feature.properties;
+                         let popupContent = `<strong>Lote: ${prop.nombre || 'N/A'}</strong>`;
+                         popupContent += `<br>Estab.: ${prop.establecimiento_nombre || 'N/A'}`;
+                         popupContent += `<br>Sup.: ${prop.superficie_calculada_has ? parseFloat(prop.superficie_calculada_has).toFixed(1) + ' ha' : 'N/A'}`;
+                         layer.bindPopup(popupContent);
+                         layer.bindTooltip(`Lote: ${prop.nombre || 'Sin nombre'}`);
+                     }
+                }).addTo(mapaEmpresa);
+                capasSuperpuestas["Lotes (Contorno)"] = lotesLayer;
+                if (!boundsToFit && lotesLayer.getBounds().isValid()) { // Ajustar a lotes si no hay ambientes
+                    boundsToFit = lotesLayer.getBounds();
+                }
+            }
+
+            // --- Ajustar Zoom Final ---
+            if (boundsToFit && boundsToFit.isValid()) {
+                 mapaEmpresa.fitBounds(boundsToFit.pad(0.1));
+            } else {
+                mapaEmpresa.setView([-33, -56], 7); // Fallback a vista general
+            }
+
+
+            // --- Leyenda (si hay ambientes) ---
+            if (hayAmbientes) {
+                var leyenda = L.control({position: 'bottomright'});
+                leyenda.onAdd = function (map) { /* ... como antes, pero quizás verificar datos ... */
+                    var div = L.DomUtil.create('div', 'info legend');
+                    var productividades = {'A': 'Alta', 'D': 'D (?)', 'B': 'Baja', 'OTRA': 'Otra', null: 'Sin dato'};
+                    var colores = {'A': '#28a745', 'D': '#ffc107', 'B': '#fd7e14', 'OTRA': '#6c757d', null: '#adb5bd'};
+                    div.innerHTML += '<strong>Productividad Ambiente</strong><br>';
+                    // Usar un Set para evitar duplicados en leyenda si hay muchos ambientes
+                    let productividadesPresentes = new Set(ambientesData.features.map(f => f.properties.productividad));
+                    for (var key in productividades) {
+                        if (productividadesPresentes.has(key === null ? null : key)) { // Comprobar si existe en los datos
+                            var color = colores[key] || colores[null];
+                            div.innerHTML += '<i style="background:' + color + '"></i> ' + productividades[key] + '<br>';
+                        }
+                    }
+                     // Añadir leyenda para el borde del lote
+                     div.innerHTML += '<i style="background:none; border: 2.5px solid #343a40;"></i> Lote (Contorno)<br>';
+                    return div;
+                };
+                leyenda.addTo(mapaEmpresa);
+            }
+
+            // --- Control de Capas ---
+            if (Object.keys(capasSuperpuestas).length > 0) {
+                layersControl = L.control.layers(null, capasSuperpuestas, { collapsed: false }).addTo(mapaEmpresa);
+            }
+
+        } catch (error) {
+            console.error("Error al inicializar el mapa:", error);
+            document.getElementById('mapa-empresa').innerHTML = 
+                '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> ' +
+                'Error al cargar el mapa: ' + error.message + '</div>';
+        }
+    });
+</script>
+{% endblock %}

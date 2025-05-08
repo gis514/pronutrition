@@ -1,0 +1,142 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block titulo_pagina %}Tareas Agronómicas{% endblock %}
+{% block titulo_seccion %}Bandeja de Tareas Agronómicas{% endblock %}
+
+{% block contenido %}
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{% if message.tags %}{{ message.tags }}{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-tasks me-2 text-primary"></i>Tareas Pendientes</h5>
+        </div>
+        <div class="card-body p-0">
+            {% if tareas_pendientes %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Tipo</th>
+                                <th>Entidad</th>
+                                <th>Descripción</th>
+                                <th>Fecha</th>
+                                <th>Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for tarea in tareas_pendientes %}
+                                <tr>
+                                    <td>{{ tarea.get_tipo_tarea_display }}</td>
+                                    <td>
+                                        {% if tarea.tipo_tarea == 'VALIDAR_ENRIQUECER_AMBIENTACION' %}
+                                            Lote: {{ tarea.objeto_real.nombre }}
+                                        {% else %}
+                                            {{ tarea.content_type }}: {{ tarea.object_id }}
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ tarea.descripcion|truncatechars:60 }}</td>
+                                    <td>{{ tarea.fecha_creacion|date:"d/m/Y H:i" }}</td>
+                                    <td>
+                                        {% if tarea.tipo_tarea == 'VALIDAR_ENRIQUECER_AMBIENTACION' %}
+                                            <a href="{% url 'ambientacion:validar_enriquecer_ambientes' tarea.object_id %}" class="btn btn-primary btn-sm">
+                                                <i class="fas fa-check-double me-1"></i> Validar Ambientes
+                                            </a>
+                                        {% elif tarea.tipo_tarea == 'VALIDAR_LOTE' %}
+                                            <a href="{% url 'ambientacion:validar_lote' tarea.object_id %}" class="btn btn-primary btn-sm">
+                                                <i class="fas fa-check me-1"></i> Validar Lote
+                                            </a>
+                                        {% else %}
+                                            <button class="btn btn-secondary btn-sm" disabled>No disponible</button>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="p-4 text-center">
+                    <p class="text-muted mb-0">
+                        <i class="fas fa-check-circle me-2"></i>
+                        No hay tareas pendientes en este momento.
+                    </p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-search me-2 text-primary"></i>Buscar Ambientes Pendientes por Establecimiento</h5>
+        </div>
+        <div class="card-body">
+            <form method="get" action="{% url 'ambientacion:vista_tareas_agronomo' %}" class="row g-2 align-items-center">
+                <div class="col-md-6">
+                    <select name="establecimiento_id" class="form-select">
+                        <option value="">-- Seleccionar Establecimiento --</option>
+                        {% for est in establecimientos %}
+                            <option value="{{ est.id }}" {% if request.GET.establecimiento_id == est.id|stringformat:"i" %}selected{% endif %}>
+                                {{ est.nombre }} ({{ est.empresa.nombre_razon_social }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">Buscar</button>
+                </div>
+                <div class="col-md-2">
+                    <a href="{% url 'ambientacion:vista_tareas_agronomo' %}" class="btn btn-outline-secondary w-100">Limpiar</a>
+                </div>
+            </form>
+            
+            {% if establecimiento_seleccionado %}
+                <hr>
+                <h6>Ambientes Pendientes en {{ establecimiento_seleccionado.nombre }}</h6>
+                
+                {% if lotes_con_ambientes_pendientes %}
+                    <div class="table-responsive mt-3">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Lote</th>
+                                    <th>Ambientes Pendientes</th>
+                                    <th>Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for lote, count in lotes_con_ambientes_pendientes.items %}
+                                    <tr>
+                                        <td>{{ lote.nombre }}</td>
+                                        <td>{{ count }}</td>
+                                        <td>
+                                            <a href="{% url 'ambientacion:validar_enriquecer_ambientes' lote.id %}" class="btn btn-primary btn-sm">
+                                                <i class="fas fa-check-double me-1"></i> Validar Ambientes
+                                            </a>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info mt-3">
+                        <i class="fas fa-info-circle me-2"></i>
+                        No hay ambientes pendientes de validación en este establecimiento.
+                    </div>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+    
+    <a href="{% url 'ambientacion:lista_empresas' %}" class="btn btn-secondary">
+        <i class="fas fa-arrow-left me-1"></i> Volver a Empresas
+    </a>
+{% endblock %}
